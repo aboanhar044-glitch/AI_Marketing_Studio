@@ -150,56 +150,6 @@ def generate_script_and_dialogue(data: dict) -> dict:
 
 
 async def generate_voice_mp3(text: str, voice_id: str, output_mp3: str):
-    communicate = edge_tts.Communicate(text, voice_id)
-    await communicate.save(output_mp3)
-
-
-def generate_sound_effects_wav(duration_sec: float, output_wav: str, sample_rate: int = 44100):
-    total_samples = int(duration_sec * sample_rate)
-    t = np.linspace(0, duration_sec, total_samples, endpoint=False)
-
-    bpm = 118.0
-    beat_period = 60.0 / bpm
-    beat_phase = (t % beat_period) / beat_period
-    kick_env = np.exp(-beat_phase * 18.0)
-    kick_freq = 55.0 + 65.0 * np.exp(-beat_phase * 25.0)
-    sub_pulse = 0.045 * kick_env * np.sin(2 * np.pi * kick_freq * t)
-
-    whoosh = np.zeros(total_samples, dtype=np.float64)
-    rng = np.random.default_rng(42)
-    white_noise = rng.normal(0, 1, total_samples)
-    for transition_t in np.arange(0.0, duration_sec, 5.0):
-        mask = np.abs(t - transition_t) < 0.25
-        if np.any(mask):
-            local_env = np.exp(-((t[mask] - transition_t) / 0.09) ** 2)
-            freq_mod = 0.5 + 0.5 * np.sin(2 * np.pi * 12 * (t[mask] - transition_t))
-            whoosh[mask] += 0.08 * local_env * white_noise[mask] * freq_mod
-
-    mix = np.clip(sub_pulse + whoosh, -0.8, 0.8)
-    pcm = (mix * 32767.0).astype(np.int16)
-
-    with wave.open(output_wav, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm.tobytes())
-
-
-def try_generate_ai_scene_video(image_path: str, prompt: str, out_mp4: str) -> bool:
-    if not FAL_KEY:
-        return False
-    try:
-        with open(image_path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        headers = {
-            "Authorization": f"Key {FAL_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "prompt": prompt,
-            "image_url": f"data:image/jpeg;base64,{b64}",
-            "aspect_ratio": "9:16",
-async def generate_voice_mp3(text: str, voice_id: str, output_mp3: str):
     try:
         communicate = edge_tts.Communicate(text, voice_id)
         await communicate.save(output_mp3)
@@ -298,7 +248,6 @@ def try_generate_ai_scene_video(image_path: str, prompt: str, out_mp4: str) -> b
     except Exception as e:
         print("Fal AI video error:", e)
     return False
-
 
 
 def prepare_canvas_background(img_path: str, width: int, height: int) -> tuple[Image.Image, Image.Image]:
