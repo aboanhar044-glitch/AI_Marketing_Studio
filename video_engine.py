@@ -15,13 +15,25 @@ import imageio_ffmpeg
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import arabic_reshaper
 from bidi.algorithm import get_display
-import google.generativeai as genai
+
+try:
+    from google import genai as genai_new
+except Exception:
+    genai_new = None
+
+try:
+    import google.generativeai as genai_legacy
+except Exception:
+    genai_legacy = None
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 FAL_KEY = os.getenv("FAL_KEY", "").strip()
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+if GEMINI_API_KEY and genai_legacy is not None:
+    try:
+        genai_legacy.configure(api_key=GEMINI_API_KEY)
+    except Exception as e:
+        print("Legacy Gemini configure warning:", e)
 
 
 def fix_arabic(text: str) -> str:
@@ -38,10 +50,12 @@ def load_font(size: int):
     candidates = [
         "Cairo-Bold.ttf",
         "static/Cairo-Bold.ttf",
+        "Cairo-Regular.ttf",
+        "static/Cairo-Regular.ttf",
         "C:/Windows/Fonts/arialbd.ttf",
         "C:/Windows/Fonts/tahoma.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/noto/NotoSansArabic-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -50,6 +64,44 @@ def load_font(size: int):
             except Exception:
                 pass
     return ImageFont.load_default()
+
+
+def _call_gemini_text(prompt: str) -> str:
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not set")
+
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+
+    if genai_new is not None:
+        client = genai_new.Client(api_key=GEMINI_API_KEY)
+        last_err = None
+        for model_name in models_to_try:
+            try:
+                resp = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if getattr(resp, "text", None):
+                    return resp.text.strip()
+            except Exception as e:
+                last_err = e
+        if last_err:
+            raise last_err
+
+    if genai_legacy is not None:
+        last_err = None
+        for model_name in models_to_try:
+            try:
+                model = genai_legacy.GenerativeModel(model_name)
+                resp = model.generate_content(prompt)
+                if getattr(resp, "text", None):
+                    return resp.text.strip()
+            except Exception as e:
+                last_err = e
+        if last_err:
+            raise last_err
+
+    raise RuntimeError("No Gemini SDK available")
 
 
 def generate_script_and_dialogue(data: dict) -> dict:
@@ -63,11 +115,11 @@ def generate_script_and_dialogue(data: dict) -> dict:
     extra_notes = data.get("extra_notes", "").strip()
     duration = int(data.get("duration", 30))
 
-    scene_count = max(4, min(10, duration // 5))
+    scene_count = max(4, min(8, duration // 5))
 
     prompt = f"""
 أنت مخرج إعلانات ومؤلف حوارات تسويقية احترافية لمنصات TikTok و Reels و Shorts.
-قم ببناء سيناريو إعلاني متكامل وحوار بشري حيوي باللغة العربية بناءً على البيانات التالية:
+صمم سيناريو إعلانياً قصصياً واقعياً ومشوّقاً باللغة العربية الفصحى البسيطة أو اللهجة القريبة للجمهور بناءً على:
 - اسم المتجر / الشركة: {store_name}
 - أرقام التواصل: {phone}
 - العنوان: {address}
@@ -75,17 +127,20 @@ def generate_script_and_dialogue(data: dict) -> dict:
 - مواصفات وتفاصيل المنتج: {product_details}
 - نوع وأسلوب الفيديو: {video_style}
 - احتياج صاحب المتجر الأساسي: {store_need}
-- ملاحظات إضافية: {extra_notes if extra_notes else "لا يوجد"}
-- المدة المستهدفة: {duration} ثانية (مقسمة إلى {scene_count} مشاهد).
+- ملاحظات إضافية / فكرة المشهد المطلوب: {extra_notes if extra_notes else "لا يوجد"}
+- المدة المستهدفة: {duration} ثانية (مقسمة إلى {scene_count} مشاهد متسلسلة).
+
+اجعل كل مشهد يطوّر القصة خطوة للأمام (من طرح الفكرة أو المشكلة، إلى استعراض المنتج ومميزاته، إلى موقف عملي واقعي أو حوار تسويقي مقنع، وصولاً إلى دعوة واضحة للتواصل والعنوان).
+اجعل وصف ai_motion_prompt بالإنجليزية دقيقاً وحركياً ومناسباً لإطار عمودي 9:16 مع الحفاظ على مظهر المنتج الأصلي.
 
 أعد النتيجة بصيغة JSON فقط بهذا الشكل:
 {{
-  "full_voiceover": "النص الكامل للتعليق الصوتي والحوار البشري متضمنا اسم المتجر وأرقام التواصل والعنوان",
+  "full_voiceover": "نص تعليق صوتي وحوار تسويقي مترابط وطبيعي يضم اسم المتجر والمنتج والتواصل والعنوان",
   "scenes": [
     {{
-      "caption": "عنوان أو جملة قصيرة تظهر على الشاشة (3 إلى 7 كلمات)",
-      "sub_badge": "وسم قصير للمشهد",
-      "ai_motion_prompt": "Detailed cinematic prompt in English describing realistic human presenter or dynamic product movement in 9:16 vertical frame"
+      "caption": "جملة قصيرة واضحة (3 إلى 7 كلمات)",
+      "sub_badge": "وسم مختصر",
+      "ai_motion_prompt": "Detailed cinematic vertical 9:16 video motion prompt in English"
     }}
   ]
 }}
@@ -93,54 +148,53 @@ def generate_script_and_dialogue(data: dict) -> dict:
 
     if GEMINI_API_KEY:
         try:
-            model = genai.GenerativeModel("gemini-2.0-flash")
-            resp = model.generate_content(prompt)
-            raw = resp.text.strip()
+            raw = _call_gemini_text(prompt)
             if "```json" in raw:
                 raw = raw.split("```json")[1].split("```")[0].strip()
             elif "```" in raw:
                 raw = raw.split("```")[1].split("```")[0].strip()
             parsed = json.loads(raw)
-            if parsed.get("full_voiceover") and parsed.get("scenes"):
+            if parsed.get("full_voiceover") and isinstance(parsed.get("scenes"), list) and parsed["scenes"]:
                 return parsed
         except Exception as e:
             print("Gemini fallback triggered:", e)
 
+    story_context = extra_notes if extra_notes else f"استخدام {product_name} عملياً وتقديم تجربة موثوقة"
+
     default_scenes = [
         {
-            "caption": f"ليش الكل يتكلم عن {product_name}؟",
-            "sub_badge": "بداية قوية",
-            "ai_motion_prompt": f"Dynamic commercial shot of {product_name}, dramatic rim lighting, smooth camera push in, 9:16"
+            "caption": f"ليش {product_name} خيارك الأذكى؟",
+            "sub_badge": "المشهد 1",
+            "ai_motion_prompt": f"Dynamic commercial vertical 9:16 shot showcasing {product_name} with smooth camera push-in and realistic studio lighting"
         },
         {
-            "caption": f"الحل العملي من {store_name}",
-            "sub_badge": store_name,
-            "ai_motion_prompt": f"Modern lifestyle showcase of {product_name} with warm studio lighting and subtle motion blur"
+            "caption": f"تفاصيل تصنع الفرق في {product_name}",
+            "sub_badge": "الجودة",
+            "ai_motion_prompt": f"Close-up cinematic tracking shot highlighting build quality and details of {product_name}, 9:16 vertical"
         },
         {
-            "caption": f"{product_details[:45]}" if product_details else "جودة واعتمادية عالية",
-            "sub_badge": "مميزات حقيقية",
-            "ai_motion_prompt": f"Close up detail view of {product_name} with sleek highlight sweep and depth of field"
+            "caption": story_context[:42],
+            "sub_badge": "تطبيق عملي",
+            "ai_motion_prompt": f"Realistic real-world scene featuring {product_name} in action ({story_context[:90]}), natural movement, 9:16 vertical"
         },
         {
-            "caption": f"تواصل الآن: {phone}",
-            "sub_badge": "اطلب الآن",
-            "ai_motion_prompt": f"Energetic promotional product highlight for {product_name} with bright modern accents"
+            "caption": f"اطلب من {store_name}: {phone}",
+            "sub_badge": "تواصل معنا",
+            "ai_motion_prompt": f"Confident promotional showcase of {product_name} from {store_name}, clean lighting and smooth pan, 9:16 vertical"
         },
         {
-            "caption": f"زورونا في {address}",
-            "sub_badge": address[:28],
-            "ai_motion_prompt": f"Clean brand finale shot of {product_name} ready for delivery and customer satisfaction"
+            "caption": f"ننتظركم في {address}",
+            "sub_badge": "الموقع",
+            "ai_motion_prompt": f"Clean energetic closing shot of {product_name} ready for customers, 9:16 vertical"
         }
     ]
 
     voiceover = (
-        f"أهلاً بك! إذا كنت تبحث عن {product_name} بمستوى يعتمد عليه، فهذا الفيديو لك. "
-        f"في {store_name} نوفر لك {product_name}، حيث {product_details if product_details else 'نهتم بأدق التفاصيل لتقديم أفضل تجربة'}. "
-        f"هدفنا الأساسي هو {store_need}. "
-        f"{('ملاحظة مهمة: ' + extra_notes + '. ') if extra_notes else ''}"
-        f"للتواصل والحجز أو الاستفسار اتصل بنا مباشرة في {store_name} على الأرقام {phone}، "
-        f"أو تفضل بزيارتنا في عنواننا: {address}. ننتظرك بكل ترحيب!"
+        f"لو كنت تدور على {product_name} يعتمد عليه وقت الجد، فهذا العرض لك. "
+        f"في {store_name} نوفر لك {product_name}، {product_details if product_details else 'بمواصفات عملية وأداء ثابت'}. "
+        f"هدفنا نلبي احتياجك في {store_need}. "
+        f"{(extra_notes + '. ') if extra_notes else ''}"
+        f"تواصل معنا مباشرة على {phone} أو زرنا في {address}."
     )
 
     return {
@@ -162,9 +216,9 @@ async def generate_voice_mp3(text: str, voice_id: str, output_mp3: str):
     est_seconds = max(6.0, min(55.0, len(text) / 14.0))
     total_samples = int(est_seconds * sample_rate)
     t = np.linspace(0, est_seconds, total_samples, endpoint=False)
-    envelope = 0.5 + 0.5 * np.sin(2 * np.pi * 2.4 * t)
-    bed = 0.03 * envelope * (np.sin(2 * np.pi * 220 * t) + 0.5 * np.sin(2 * np.pi * 330 * t))
-    pcm = (np.clip(bed, -0.7, 0.7) * 32767.0).astype(np.int16)
+    envelope = 0.5 + 0.5 * np.sin(2 * np.pi * 2.0 * t)
+    bed = 0.02 * envelope * (np.sin(2 * np.pi * 196 * t) + 0.4 * np.sin(2 * np.pi * 293.66 * t))
+    pcm = (np.clip(bed, -0.5, 0.5) * 32767.0).astype(np.int16)
 
     tmp_wav = output_mp3 + ".wav"
     with wave.open(tmp_wav, "wb") as wf:
@@ -189,24 +243,24 @@ def generate_sound_effects_wav(duration_sec: float, output_wav: str, sample_rate
     total_samples = int(duration_sec * sample_rate)
     t = np.linspace(0, duration_sec, total_samples, endpoint=False)
 
-    bpm = 118.0
+    bpm = 112.0
     beat_period = 60.0 / bpm
     beat_phase = (t % beat_period) / beat_period
     kick_env = np.exp(-beat_phase * 18.0)
-    kick_freq = 55.0 + 65.0 * np.exp(-beat_phase * 25.0)
-    sub_pulse = 0.045 * kick_env * np.sin(2 * np.pi * kick_freq * t)
+    kick_freq = 52.0 + 55.0 * np.exp(-beat_phase * 24.0)
+    sub_pulse = 0.025 * kick_env * np.sin(2 * np.pi * kick_freq * t)
 
     whoosh = np.zeros(total_samples, dtype=np.float64)
     rng = np.random.default_rng(42)
     white_noise = rng.normal(0, 1, total_samples)
     for transition_t in np.arange(0.0, duration_sec, 5.0):
-        mask = np.abs(t - transition_t) < 0.25
+        mask = np.abs(t - transition_t) < 0.22
         if np.any(mask):
-            local_env = np.exp(-((t[mask] - transition_t) / 0.09) ** 2)
-            freq_mod = 0.5 + 0.5 * np.sin(2 * np.pi * 12 * (t[mask] - transition_t))
-            whoosh[mask] += 0.08 * local_env * white_noise[mask] * freq_mod
+            local_env = np.exp(-((t[mask] - transition_t) / 0.08) ** 2)
+            freq_mod = 0.5 + 0.5 * np.sin(2 * np.pi * 10 * (t[mask] - transition_t))
+            whoosh[mask] += 0.045 * local_env * white_noise[mask] * freq_mod
 
-    mix = np.clip(sub_pulse + whoosh, -0.8, 0.8)
+    mix = np.clip(sub_pulse + whoosh, -0.6, 0.6)
     pcm = (mix * 32767.0).astype(np.int16)
 
     with wave.open(output_wav, "wb") as wf:
@@ -257,13 +311,13 @@ def prepare_canvas_background(img_path: str, width: int, height: int) -> tuple[I
     bg = src.resize((int(src.width * bg_ratio), int(src.height * bg_ratio)), Image.Resampling.LANCZOS)
     left = (bg.width - width) // 2
     top = (bg.height - height) // 2
-    bg = bg.crop((left, top, left + width, top + height)).filter(ImageFilter.GaussianBlur(radius=28))
+    bg = bg.crop((left, top, left + width, top + height)).filter(ImageFilter.GaussianBlur(radius=22))
 
-    dark_layer = Image.new("RGBA", (width, height), (8, 12, 24, 125))
+    dark_layer = Image.new("RGBA", (width, height), (10, 14, 24, 95))
     bg_rgba = Image.alpha_composite(bg.convert("RGBA"), dark_layer).convert("RGB")
 
-    fg_max_w = int(width * 0.84)
-    fg_max_h = int(height * 0.46)
+    fg_max_w = int(width * 0.90)
+    fg_max_h = int(height * 0.56)
     fg_ratio = min(fg_max_w / src.width, fg_max_h / src.height)
     fg = src.resize((max(1, int(src.width * fg_ratio)), max(1, int(src.height * fg_ratio))), Image.Resampling.LANCZOS)
 
@@ -285,82 +339,82 @@ def render_frame_with_store_layout(
     layout_mode: int
 ) -> np.ndarray:
     progress = min(1.0, max(0.0, t / max(0.1, scene_duration)))
-    pulse = 1.0 + 0.025 * math.sin(2 * math.pi * t * 2.2)
+    motion_type = layout_mode % 4
 
-    zoom_bg = 1.04 + 0.06 * progress
+    if motion_type == 0:
+        zoom_bg = 1.05 + 0.08 * progress
+        pan_x = int(35 * math.sin(progress * math.pi))
+        pan_y = int(20 * (progress - 0.5))
+    elif motion_type == 1:
+        zoom_bg = 1.12 - 0.07 * progress
+        pan_x = int(-35 * math.sin(progress * math.pi))
+        pan_y = int(-20 * (progress - 0.5))
+    elif motion_type == 2:
+        zoom_bg = 1.06 + 0.05 * math.sin(progress * math.pi)
+        pan_x = int(50 * (progress - 0.5))
+        pan_y = int(15 * math.cos(t * 1.5))
+    else:
+        zoom_bg = 1.08 + 0.06 * progress
+        pan_x = int(-45 * (progress - 0.5))
+        pan_y = int(25 * math.sin(t * 1.3))
+
     bw, bh = int(width * zoom_bg), int(height * zoom_bg)
     bg_moved = bg_img.resize((bw, bh), Image.Resampling.BILINEAR)
-    bx = (bw - width) // 2 + int(18 * math.sin(t * 1.4))
-    by = (bh - height) // 2 + int(14 * math.cos(t * 1.1))
+    bx = max(0, min(bw - width, (bw - width) // 2 + pan_x))
+    by = max(0, min(bh - height, (bh - height) // 2 + pan_y))
     frame = bg_moved.crop((bx, by, bx + width, by + height)).convert("RGBA")
 
     if fg_img.width > 2 and fg_img.height > 2:
-        fg_scale = (0.95 + 0.08 * progress) * pulse
+        fg_scale = 0.96 + 0.07 * math.sin(progress * math.pi)
         fw = max(10, int(fg_img.width * fg_scale))
         fh = max(10, int(fg_img.height * fg_scale))
         fg_resized = fg_img.resize((fw, fh), Image.Resampling.BILINEAR)
-        fx = (width - fw) // 2 + int(14 * math.sin(t * 2.0))
-        fy = max(230, min(height - 760 - fh // 2, (height // 2 - 40) - fh // 2 + int(12 * math.sin(t * 1.7))))
+        fx = max(40, min(width - fw - 40, (width - fw) // 2 + int(pan_x * 0.45)))
+        fy = max(240, min(height - 620 - fh // 2, (height // 2 - 60) - fh // 2 + int(pan_y * 0.4)))
         frame.paste(fg_resized, (fx, fy))
 
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+
+    for y in range(280):
+        alpha = int(145 * (1.0 - y / 280.0))
+        odraw.line([(0, y), (width, y)], fill=(8, 12, 20, alpha))
+
+    for y in range(height - 540, height):
+        ratio = (y - (height - 540)) / 540.0
+        alpha = int(175 * ratio)
+        odraw.line([(0, y), (width, y)], fill=(8, 12, 20, alpha))
+
+    frame = Image.alpha_composite(frame, overlay)
     draw = ImageDraw.Draw(frame)
 
-    palettes = [
-        {"accent": (244, 63, 94, 240), "card": (15, 23, 42, 225), "highlight": (251, 191, 36, 255), "text": (255, 255, 255, 255)},
-        {"accent": (16, 185, 129, 240), "card": (6, 38, 32, 225), "highlight": (110, 231, 183, 255), "text": (255, 255, 255, 255)},
-        {"accent": (245, 158, 11, 240), "card": (24, 18, 12, 228), "highlight": (253, 224, 71, 255), "text": (255, 255, 255, 255)},
-        {"accent": (56, 189, 248, 240), "card": (12, 25, 48, 225), "highlight": (125, 211, 252, 255), "text": (255, 255, 255, 255)},
-        {"accent": (192, 132, 252, 240), "card": (28, 16, 48, 225), "highlight": (233, 213, 255, 255), "text": (255, 255, 255, 255)},
-        {"accent": (251, 113, 133, 240), "card": (20, 20, 28, 228), "highlight": (254, 205, 211, 255), "text": (255, 255, 255, 255)},
-    ]
-    pal = palettes[layout_mode % len(palettes)]
-
-    f_store = load_font(40)
-    f_caption = load_font(52)
-    f_contact = load_font(36)
-    f_addr = load_font(31)
-    f_badge = load_font(28)
+    f_store = load_font(38)
+    f_caption = load_font(48)
+    f_contact = load_font(32)
 
     ar_store = fix_arabic(store_name)
-    ar_phone = fix_arabic(f"تواصل: {phone}")
-    ar_address = fix_arabic(f"العنوان: {address}")
-    wrapped_cap = "\n".join(textwrap.wrap(caption, width=24))
+    wrapped_cap = "\n".join(textwrap.wrap(caption, width=26))
     ar_caption = fix_arabic(wrapped_cap)
-    ar_badge = fix_arabic(badge_text)
+    ar_contact = fix_arabic(f"{phone}  |  {address}")
 
-    mode = layout_mode % 6
+    draw.text((width // 2, 165), ar_store, font=f_store, fill=(255, 215, 90, 255), anchor="mm")
 
-    top_y = 135
-    if mode in (0, 2, 4):
-        draw.rounded_rectangle([55, top_y, width - 55, top_y + 86], radius=24, fill=pal["card"], outline=pal["accent"], width=3)
-        draw.text((width // 2, top_y + 43), ar_store, font=f_store, fill=pal["highlight"], anchor="mm")
-    else:
-        draw.rounded_rectangle([55, top_y, width - 55, top_y + 84], radius=42, fill=pal["accent"])
-        draw.text((width // 2, top_y + 42), ar_store, font=f_store, fill=pal["text"], anchor="mm")
+    draw.multiline_text(
+        (width // 2, height - 415),
+        ar_caption,
+        font=f_caption,
+        fill=(255, 255, 255, 255),
+        anchor="mm",
+        align="center"
+    )
 
-    if badge_text:
-        draw.rounded_rectangle([75, top_y + 96, 360, top_y + 142], radius=16, fill=pal["card"], outline=pal["highlight"], width=2)
-        draw.text((217, top_y + 119), ar_badge, font=f_badge, fill=pal["text"], anchor="mm")
-
-    cap_box_top = height - 650
-    cap_box_bottom = height - 475
-    draw.rounded_rectangle([55, cap_box_top, width - 55, cap_box_bottom], radius=26, fill=pal["card"], outline=pal["highlight"], width=2)
-    draw.multiline_text((width // 2, (cap_box_top + cap_box_bottom) // 2), ar_caption, font=f_caption, fill=pal["text"], anchor="mm", align="center")
-
-    right_safe = width - 125
-    center_safe_x = (55 + right_safe) // 2
-
-    if mode in (0, 1, 3):
-        draw.rounded_rectangle([55, height - 455, right_safe, height - 265], radius=24, fill=pal["accent"])
-        draw.text((center_safe_x, height - 405), ar_phone, font=f_contact, fill=pal["text"], anchor="mm")
-        draw.line([(95, height - 355), (right_safe - 40, height - 355)], fill=pal["text"], width=2)
-        draw.text((center_safe_x, height - 308), ar_address, font=f_addr, fill=pal["text"], anchor="mm")
-    else:
-        draw.rounded_rectangle([55, height - 455, right_safe, height - 365], radius=18, fill=pal["card"], outline=pal["accent"], width=3)
-        draw.text((center_safe_x, height - 410), ar_phone, font=f_contact, fill=pal["highlight"], anchor="mm")
-
-        draw.rounded_rectangle([55, height - 352, right_safe, height - 265], radius=18, fill=pal["accent"])
-        draw.text((center_safe_x, height - 308), ar_address, font=f_addr, fill=pal["text"], anchor="mm")
+    draw.text(
+        (width // 2, height - 295),
+        ar_contact,
+        font=f_contact,
+        fill=(220, 230, 245, 245),
+        anchor="mm"
+    )
 
     return np.array(frame.convert("RGB"))
 
@@ -373,7 +427,7 @@ def mux_audio_with_video(silent_mp4: str, voice_mp3: str, sfx_wav: str, final_mp
         "-i", silent_mp4,
         "-i", voice_mp3,
         "-i", sfx_wav,
-        "-filter_complex", "[1:a]volume=1.15[a1];[2:a]volume=0.85[a2];[a1][a2]amix=inputs=2:duration=first[aout]",
+        "-filter_complex", "[1:a]volume=1.2[a1];[2:a]volume=0.55[a2];[a1][a2]amix=inputs=2:duration=first[aout]",
         "-map", "0:v:0",
         "-map", "[aout]",
         "-c:v", "libx264",
