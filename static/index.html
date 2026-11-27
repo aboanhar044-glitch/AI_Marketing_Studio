@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>استوديو التسويق بالذكاء الاصطناعي — إنتاج فيديو MP4</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Cairo', sans-serif; background: #070b14; color: #f8fafc; }
+    .panel { background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(148, 163, 184, 0.16); backdrop-filter: blur(10px); }
+  </style>
+</head>
+<body class="min-h-screen pb-14">
+  <header class="sticky top-0 z-30 bg-slate-950/90 border-b border-slate-800 px-4 py-3">
+    <div class="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
+      <div>
+        <h1 class="text-lg sm:text-xl font-black text-amber-400">استوديو التسويق الذكي للفيديو (9:16 MP4)</h1>
+        <p class="text-xs text-slate-400">يعمل على الهاتف والكمبيوتر • صوت بشري • مؤثرات • أنماط متجددة لبيانات المتجر</p>
+      </div>
+      <div id="deviceLinks" class="text-xs text-slate-300 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl"></div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 mt-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <form id="studioForm" class="lg:col-span-7 space-y-5">
+      <section class="panel p-5 rounded-2xl space-y-4">
+        <h2 class="text-base font-extrabold text-rose-400">أولاً: بيانات المتجر (تُنطق بالصوت وتُظهر بتصاميم متغيرة)</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-slate-300 mb-1">اسم المتجر أو الشركة *</label>
+            <input type="text" name="store_name" required placeholder="مثال: متجر النخبة الحديثة" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm focus:outline-none focus:border-amber-400">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-300 mb-1">أرقام التواصل / الواتساب *</label>
+            <input type="text" name="phone" required placeholder="مثال: 777123456 - 733987654" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm focus:outline-none focus:border-amber-400">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">عنوان المتجر أو الفروع *</label>
+          <input type="text" name="address" required placeholder="مثال: صنعاء — شارع حدة جوار جولة المصباحي" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm focus:outline-none focus:border-amber-400">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">طريقة عرض بيانات المتجر على الفيديو</label>
+          <select id="displayModeSelect" name="display_mode" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm"></select>
+        </div>
+      </section>
+
+      <section class="panel p-5 rounded-2xl space-y-4">
+        <h2 class="text-base font-extrabold text-amber-400">ثانياً: المنتج والصور من معرض الهاتف أو الكاميرا</h2>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">نوع / اسم المنتج المطلوب تسويقه *</label>
+          <input type="text" name="product_name" required placeholder="مثال: سماعة لاسلكية بعزل ضوضاء" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm focus:outline-none focus:border-amber-400">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">وصف ومميزات المنتج *</label>
+          <textarea name="product_details" rows="2" required placeholder="اذكر المميزات، الخامة، السعر أو العرض، والضمان..." class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm focus:outline-none focus:border-amber-400"></textarea>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1.5">اختيار صورة أو عدة صور للمنتج من الهاتف أو الكاميرا *</label>
+          <input id="imagesInput" type="file" name="images" accept="image/*" multiple required class="w-full text-xs text-slate-300 file:ml-3 file:py-2.5 file:px-4 file:rounded-xl file:border-0 file:font-bold file:bg-amber-500 file:text-slate-950 hover:file:bg-amber-400 bg-slate-900 rounded-xl border border-slate-700 p-2 cursor-pointer">
+          <div id="thumbs" class="grid grid-cols-4 sm:grid-cols-6 gap-2 mt-3"></div>
+        </div>
+      </section>
+
+      <section class="panel p-5 rounded-2xl space-y-4">
+        <h2 class="text-base font-extrabold text-sky-400">ثالثاً: خيارات الفيديو واحتياجات صاحب المتجر</h2>
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">اختر شكل ونمط الفيديو (240 خيار متنوع)</label>
+          <select id="styleSelect" name="video_style" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm"></select>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">ما هو الاحتياج الأساسي الذي يريده صاحب المتجر في الفيديو؟</label>
+          <select id="needSelect" name="store_need" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm"></select>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-slate-300 mb-1">صوت المعلق والحوار البشري</label>
+            <select id="voiceSelect" name="voice_id" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm"></select>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-300 mb-1">مدة الفيديو (حتى 60 ثانية)</label>
+            <select name="duration" class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm">
+              <option value="15">15 ثانية</option>
+              <option value="30" selected>30 ثانية</option>
+              <option value="45">45 ثانية</option>
+              <option value="60">60 ثانية</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-300 mb-1">تفاصيل أو شروط إضافية يريدها صاحب المتجر</label>
+          <input type="text" name="extra_notes" placeholder="مثال: التركيز على التوصيل السريع أو عرض نهاية الأسبوع..." class="w-full px-3 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-sm">
+        </div>
+      </section>
+
+      <button id="generateBtn" type="submit" class="w-full py-4 rounded-2xl font-black text-base bg-gradient-to-l from-amber-500 to-rose-600 text-white hover:opacity-95 transition shadow-lg">
+        إنتاج الفيديو التسويقي الكامل (MP4)
+      </button>
+    </form>
+
+    <aside class="lg:col-span-5">
+      <div class="panel p-5 rounded-2xl sticky top-20 flex flex-col items-center">
+        <h3 class="text-sm font-extrabold text-slate-200 mb-3">معاينة الفيديو الجاهز للنشر (9:16)</h3>
+
+        <div id="loadingBox" class="hidden w-full mb-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs text-center leading-relaxed">
+          جاري تأليف النص، توليد الصوت البشري، تركيب المؤثرات الصوتية والحركية، وتصميم بطاقات بيانات المتجر...
+        </div>
+
+        <div class="w-[265px] h-[470px] bg-slate-950 rounded-3xl border-2 border-slate-800 overflow-hidden flex items-center justify-center">
+          <p id="emptyMsg" class="text-xs text-slate-500 px-5 text-center leading-relaxed">
+            بعد إدخال البيانات واختيار الصور والضغط على "إنتاج الفيديو"، سيظهر الفيديو النهائي هنا للمعاينة والتحميل المباشر.
+          </p>
+          <video id="videoPlayer" controls playsinline class="hidden w-full h-full object-cover"></video>
+        </div>
+
+        <a id="downloadLink" href="#" download class="hidden mt-4 w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm text-center transition">
+          تحميل ملف الفيديو MP4 الآن
+        </a>
+
+        <div id="scriptCard" class="hidden mt-4 w-full p-3.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 space-y-1.5">
+          <div class="font-bold text-amber-400">النص المنطوق المولد:</div>
+          <p id="scriptText" class="leading-relaxed"></p>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    async function loadCatalog() {
+      const res = await fetch("/api/catalog");
+      const data = await res.json();
+
+      if (data.device_urls) {
+        document.getElementById("deviceLinks").textContent =
+          `هاتف (نفس الشبكة): ${data.device_urls.mobile_lan}`;
+      }
+
+      const styleSel = document.getElementById("styleSelect");
+      data.styles.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s;
+        opt.textContent = s;
+        styleSel.appendChild(opt);
+      });
+
+      const needSel = document.getElementById("needSelect");
+      data.needs.forEach(n => {
+        const opt = document.createElement("option");
+        opt.value = n;
+        opt.textContent = n;
+        needSel.appendChild(opt);
+      });
+
+      const voiceSel = document.getElementById("voiceSelect");
+      data.voices.forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v.id;
+        opt.textContent = v.label;
+        voiceSel.appendChild(opt);
+      });
+
+      const modeSel = document.getElementById("displayModeSelect");
+      data.display_modes.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m.id;
+        opt.textContent = m.label;
+        modeSel.appendChild(opt);
+      });
+    }
+    loadCatalog();
+
+    document.getElementById("imagesInput").addEventListener("change", (e) => {
+      const box = document.getElementById("thumbs");
+      box.innerHTML = "";
+      Array.from(e.target.files).forEach(file => {
+        const img = document.createElement("img");
+        img.src = URL.createObjectURL(file);
+        img.className = "w-full h-14 object-cover rounded-lg border border-slate-700";
+        box.appendChild(img);
+      });
+    });
+
+    document.getElementById("studioForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById("generateBtn");
+      const loading = document.getElementById("loadingBox");
+      const player = document.getElementById("videoPlayer");
+      const emptyMsg = document.getElementById("emptyMsg");
+      const dl = document.getElementById("downloadLink");
+      const scriptCard = document.getElementById("scriptCard");
+      const scriptText = document.getElementById("scriptText");
+
+      btn.disabled = true;
+      btn.textContent = "جاري إنتاج الفيديو...";
+      loading.classList.remove("hidden");
+
+      try {
+        const fd = new FormData(e.target);
+        const res = await fetch("/api/create-video", { method: "POST", body: fd });
+        const json = await res.json();
+        if (json.status === "success") {
+          emptyMsg.classList.add("hidden");
+          player.classList.remove("hidden");
+          player.src = json.video_url;
+          player.play();
+
+          dl.href = json.video_url;
+          dl.download = json.filename;
+          dl.classList.remove("hidden");
+
+          scriptCard.classList.remove("hidden");
+          scriptText.textContent = json.voiceover_script;
+        } else {
+          alert(json.message || "تعذر إنتاج الفيديو");
+        }
+      } catch (err) {
+        alert("خطأ في الاتصال: " + err.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "إنتاج الفيديو التسويقي الكامل (MP4)";
+        loading.classList.add("hidden");
+      }
+    });
+  </script>
+</body>
+</html>
