@@ -1,12 +1,13 @@
+import io
 import os
 import re
 import json
+import time
 import wave
 import random
 import subprocess
 import base64
 import textwrap
-import math
 import requests
 import edge_tts
 import numpy as np
@@ -18,10 +19,8 @@ from bidi.algorithm import get_display
 
 try:
     from google import genai as genai_new
-    from google.genai import types as genai_types
 except Exception:
     genai_new = None
-    genai_types = None
 
 try:
     import google.generativeai as genai_legacy
@@ -29,7 +28,7 @@ except Exception:
     genai_legacy = None
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-FAL_KEY = os.getenv("FAL_KEY", "").strip()
+FAL_KEY = re.sub(r"\s+", "", os.getenv("FAL_KEY", "") or "")
 
 if GEMINI_API_KEY and genai_legacy is not None:
     try:
@@ -79,9 +78,10 @@ def _call_gemini_multimodal(prompt: str, image_paths: list[str] | None = None) -
         client = genai_new.Client(api_key=GEMINI_API_KEY)
         contents: list = [prompt]
         for img_p in valid_imgs:
-            pil_img = Image.open(img_p).convert("RGB")
-            pil_img.thumbnail((1024, 1024))
-            contents.append(pil_img)
+            with Image.open(img_p) as im:
+                pil_img = im.convert("RGB")
+                pil_img.thumbnail((896, 896))
+                contents.append(pil_img)
 
         last_err = None
         for model_name in models_to_try:
@@ -104,9 +104,10 @@ def _call_gemini_multimodal(prompt: str, image_paths: list[str] | None = None) -
                 model = genai_legacy.GenerativeModel(model_name)
                 parts: list = [prompt]
                 for img_p in valid_imgs:
-                    pil_img = Image.open(img_p).convert("RGB")
-                    pil_img.thumbnail((1024, 1024))
-                    parts.append(pil_img)
+                    with Image.open(img_p) as im:
+                        pil_img = im.convert("RGB")
+                        pil_img.thumbnail((896, 896))
+                        parts.append(pil_img)
                 resp = model.generate_content(parts)
                 if getattr(resp, "text", None):
                     return resp.text.strip()
@@ -130,7 +131,7 @@ User scene / notes: {extra_notes if extra_notes else "None"}
 
 Describe concisely in English:
 1. Exact visual appearance of the product (type, shape, dominant colors, any visible labels/logos/style).
-2. Best realistic commercial scenes and human actions that fit the product and user notes (for example, taking it from a store, inspecting it, installing or using it in a realistic setting, or a natural promotional presenter/dialogue).
+2. Best realistic commercial scenes and human actions that fit the product and user notes.
 Keep it factual to the image and suitable for video generation prompts.
 """
     try:
@@ -151,10 +152,10 @@ def generate_script_and_dialogue(data: dict, visual_context: str = "") -> dict:
     extra_notes = data.get("extra_notes", "").strip()
     duration = int(data.get("duration", 30))
 
-    scene_count = max(4, min(8, duration // 5))
+    scene_count = max(3, min(6, duration // 6))
 
     prompt = f"""
-أنت مخرج إعلانات ومؤلف حوارات تسويقية احترافية لمنصات TikTok و Reels و Shorts بأسلوب إنتاج سينمائي يشبه أدوات توليد الفيديو بالذكاء الاصطناعي.
+أنت مخرج إعلانات ومؤلف حوارات تسويقية احترافية لمنصات TikTok و Reels و Shorts بأسلوب إنتاج سينمائي.
 صمم سيناريو إعلانياً قصصياً واقعياً ومشوّقاً باللغة العربية بناءً على:
 - اسم المتجر / الشركة: {store_name}
 - أرقام التواصل: {phone}
@@ -166,9 +167,6 @@ def generate_script_and_dialogue(data: dict, visual_context: str = "") -> dict:
 - فكرة المشاهد المطلوبة من المستخدم: {extra_notes if extra_notes else "لا يوجد"}
 - التحليل البصري للمنتج من الصور: {visual_context if visual_context else product_name}
 - المدة المستهدفة: {duration} ثانية (مقسمة إلى {scene_count} مشاهد متسلسلة).
-
-اجعل كل مشهد يطوّر القصة خطوة للأمام (البداية الجذابة، استعراض المنتج ومميزاته، موقف عملي واقعي أو حوار تسويقي مقنع مثل أخذ المنتج أو تركيبه أو استخدامه وفق فكرة المستخدم، ثم دعوة واضحة للتواصل والعنوان).
-اجعل وصف ai_motion_prompt بالإنجليزية غنياً ومحدداً للحركة والكاميرا والإضاءة في إطار عمودي 9:16 مع الحفاظ على شكل المنتج الفعلي كما هو في التحليل البصري.
 
 أعد النتيجة بصيغة JSON فقط بهذا الشكل:
 {{
@@ -202,27 +200,27 @@ def generate_script_and_dialogue(data: dict, visual_context: str = "") -> dict:
         {
             "caption": f"ليش {product_name} خيارك الأذكى؟",
             "sub_badge": "البداية",
-            "ai_motion_prompt": f"Cinematic 9:16 vertical commercial shot of {product_name} ({visual_context[:120]}), smooth dolly-in camera movement, dramatic studio rim lighting, realistic textures"
+            "ai_motion_prompt": f"Cinematic 9:16 vertical commercial shot of {product_name} ({visual_context[:100]}), smooth dolly-in camera movement, studio lighting"
         },
         {
             "caption": f"تفاصيل تصنع الفرق في {product_name}",
             "sub_badge": "المواصفات",
-            "ai_motion_prompt": f"Smooth close-up orbiting camera shot around {product_name} highlighting build quality and fine details, natural commercial lighting, 9:16 vertical"
+            "ai_motion_prompt": f"Smooth close-up camera shot around {product_name} highlighting build quality, natural commercial lighting, 9:16 vertical"
         },
         {
             "caption": story_context[:42],
             "sub_badge": "مشهد واقعي",
-            "ai_motion_prompt": f"Realistic 9:16 vertical scene showing practical real-world use of {product_name}: {story_context[:120]}, natural human action and smooth handheld cinematic motion"
+            "ai_motion_prompt": f"Realistic 9:16 vertical scene showing practical use of {product_name}: {story_context[:100]}, smooth cinematic motion"
         },
         {
             "caption": f"اطلب من {store_name}: {phone}",
             "sub_badge": "تواصل معنا",
-            "ai_motion_prompt": f"Clean confident commercial showcase of {product_name} representing {store_name}, bright modern lighting, smooth lateral camera glide, 9:16 vertical"
+            "ai_motion_prompt": f"Clean commercial showcase of {product_name} representing {store_name}, bright modern lighting, 9:16 vertical"
         },
         {
             "caption": f"ننتظركم في {address}",
             "sub_badge": "العنوان",
-            "ai_motion_prompt": f"Polished brand finale shot of {product_name} ready for delivery and customer trust, warm lighting, 9:16 vertical"
+            "ai_motion_prompt": f"Polished brand finale shot of {product_name} ready for delivery, warm lighting, 9:16 vertical"
         }
     ]
 
@@ -307,10 +305,10 @@ def generate_sound_effects_wav(duration_sec: float, output_wav: str, sample_rate
         wf.writeframes(pcm.tobytes())
 
 
-def _download_video_url(video_url: str, out_mp4: str) -> bool:
+def _download_video_url(video_url: str, out_mp4: str, timeout_sec: int = 35) -> bool:
     if not video_url:
         return False
-    vid_resp = requests.get(video_url, timeout=120)
+    vid_resp = requests.get(video_url, timeout=timeout_sec)
     if vid_resp.status_code == 200 and len(vid_resp.content) > 1000:
         with open(out_mp4, "wb") as out:
             out.write(vid_resp.content)
@@ -318,10 +316,14 @@ def _download_video_url(video_url: str, out_mp4: str) -> bool:
     return False
 
 
-def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: str) -> bool:
+def try_generate_ai_scene_video(
+    image_path: str | None,
+    prompt: str,
+    out_mp4: str,
+    timeout_sec: int = 35,
+) -> bool:
     clean_fal_key = re.sub(r"\s+", "", FAL_KEY or "")
     if not clean_fal_key:
-        print("Fal AI skipped: FAL_KEY is missing")
         return False
 
     headers = {
@@ -332,12 +334,11 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
     endpoints: list[tuple[str, dict]] = []
 
     if image_path and os.path.exists(image_path):
-        with open(image_path, "rb") as f:
-            img_rgb = Image.open(f).convert("RGB")
-            img_rgb.thumbnail((1080, 1920))
-            import io
+        with Image.open(image_path) as im:
+            img_rgb = im.convert("RGB")
+            img_rgb.thumbnail((720, 1280))
             buf = io.BytesIO()
-            img_rgb.save(buf, format="JPEG", quality=88)
+            img_rgb.save(buf, format="JPEG", quality=82)
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
         data_uri = f"data:image/jpeg;base64,{b64}"
@@ -350,24 +351,15 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
                 "duration": "5",
             },
         ))
+    else:
         endpoints.append((
-            "https://fal.run/fal-ai/kling-video/v1.6/pro/image-to-video",
+            "https://fal.run/fal-ai/kling-video/v1.6/standard/text-to-video",
             {
                 "prompt": prompt,
-                "image_url": data_uri,
                 "aspect_ratio": "9:16",
                 "duration": "5",
             },
         ))
-
-    endpoints.append((
-        "https://fal.run/fal-ai/kling-video/v1.6/standard/text-to-video",
-        {
-            "prompt": prompt,
-            "aspect_ratio": "9:16",
-            "duration": "5",
-        },
-    ))
 
     for url_endpoint, payload in endpoints:
         try:
@@ -375,7 +367,7 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
                 url_endpoint,
                 json=payload,
                 headers=headers,
-                timeout=75,
+                timeout=timeout_sec,
             )
             if r.status_code == 200:
                 data_json = r.json()
@@ -384,10 +376,10 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
                     or data_json.get("video_url")
                     or ""
                 )
-                if _download_video_url(vid_url, out_mp4):
+                if _download_video_url(vid_url, out_mp4, timeout_sec=timeout_sec):
                     return True
             else:
-                print(f"Fal AI endpoint {url_endpoint} returned {r.status_code}: {r.text[:200]}")
+                print(f"Fal AI endpoint {url_endpoint} returned {r.status_code}: {r.text[:160]}")
         except Exception as e:
             print(f"Fal AI error on {url_endpoint}:", e)
 
@@ -395,13 +387,14 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
 
 
 def prepare_canvas_background(img_path: str, width: int, height: int) -> tuple[Image.Image, Image.Image]:
-    src = Image.open(img_path).convert("RGB")
+    with Image.open(img_path) as im:
+        src = im.convert("RGB")
 
     bg_ratio = max(width / src.width, height / src.height)
-    bg = src.resize((int(src.width * bg_ratio), int(src.height * bg_ratio)), Image.Resampling.LANCZOS)
+    bg = src.resize((int(src.width * bg_ratio), int(src.height * bg_ratio)), Image.Resampling.BILINEAR)
     left = (bg.width - width) // 2
     top = (bg.height - height) // 2
-    bg = bg.crop((left, top, left + width, top + height)).filter(ImageFilter.GaussianBlur(radius=22))
+    bg = bg.crop((left, top, left + width, top + height)).filter(ImageFilter.GaussianBlur(radius=14))
 
     dark_layer = Image.new("RGBA", (width, height), (10, 14, 24, 95))
     bg_rgba = Image.alpha_composite(bg.convert("RGBA"), dark_layer).convert("RGB")
@@ -409,9 +402,54 @@ def prepare_canvas_background(img_path: str, width: int, height: int) -> tuple[I
     fg_max_w = int(width * 0.90)
     fg_max_h = int(height * 0.56)
     fg_ratio = min(fg_max_w / src.width, fg_max_h / src.height)
-    fg = src.resize((max(1, int(src.width * fg_ratio)), max(1, int(src.height * fg_ratio))), Image.Resampling.LANCZOS)
+    fg = src.resize((max(1, int(src.width * fg_ratio)), max(1, int(src.height * fg_ratio))), Image.Resampling.BILINEAR)
 
     return bg_rgba, fg
+
+
+def _build_static_overlay(width: int, height: int, caption: str, store_name: str, phone: str, address: str) -> Image.Image:
+    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    odraw = ImageDraw.Draw(overlay)
+
+    top_h = int(height * 0.14)
+    for y in range(top_h):
+        alpha = int(145 * (1.0 - y / top_h))
+        odraw.line([(0, y), (width, y)], fill=(8, 12, 20, alpha))
+
+    bot_start = int(height * 0.72)
+    bot_h = height - bot_start
+    for y in range(bot_start, height):
+        ratio = (y - bot_start) / max(1, bot_h)
+        alpha = int(175 * ratio)
+        odraw.line([(0, y), (width, y)], fill=(8, 12, 20, alpha))
+
+    scale = width / 1080.0
+    f_store = load_font(max(20, int(38 * scale)))
+    f_caption = load_font(max(24, int(48 * scale)))
+    f_contact = load_font(max(18, int(32 * scale)))
+
+    ar_store = fix_arabic(store_name)
+    wrapped_cap = "\n".join(textwrap.wrap(caption, width=26))
+    ar_caption = fix_arabic(wrapped_cap)
+    ar_contact = fix_arabic(f"{phone}  |  {address}")
+
+    odraw.text((width // 2, int(height * 0.086)), ar_store, font=f_store, fill=(255, 215, 90, 255), anchor="mm")
+    odraw.multiline_text(
+        (width // 2, int(height * 0.784)),
+        ar_caption,
+        font=f_caption,
+        fill=(255, 255, 255, 255),
+        anchor="mm",
+        align="center"
+    )
+    odraw.text(
+        (width // 2, int(height * 0.846)),
+        ar_contact,
+        font=f_contact,
+        fill=(220, 230, 245, 245),
+        anchor="mm"
+    )
+    return overlay
 
 
 def render_frame_with_store_layout(
@@ -426,28 +464,29 @@ def render_frame_with_store_layout(
     store_name: str,
     phone: str,
     address: str,
-    layout_mode: int
+    layout_mode: int,
+    cached_overlay: Image.Image | None = None,
 ) -> np.ndarray:
     progress = min(1.0, max(0.0, t / max(0.1, scene_duration)))
     smooth_ease = progress * progress * (3.0 - 2.0 * progress)
     motion_type = layout_mode % 4
 
     if motion_type == 0:
-        zoom_bg = 1.04 + 0.06 * smooth_ease
-        pan_x = int(24 * (smooth_ease - 0.5))
-        pan_y = int(14 * (smooth_ease - 0.5))
+        zoom_bg = 1.03 + 0.05 * smooth_ease
+        pan_x = int(18 * (smooth_ease - 0.5))
+        pan_y = int(10 * (smooth_ease - 0.5))
     elif motion_type == 1:
-        zoom_bg = 1.10 - 0.05 * smooth_ease
-        pan_x = int(-24 * (smooth_ease - 0.5))
-        pan_y = int(-14 * (smooth_ease - 0.5))
+        zoom_bg = 1.08 - 0.04 * smooth_ease
+        pan_x = int(-18 * (smooth_ease - 0.5))
+        pan_y = int(-10 * (smooth_ease - 0.5))
     elif motion_type == 2:
-        zoom_bg = 1.05 + 0.04 * smooth_ease
-        pan_x = int(32 * (smooth_ease - 0.5))
+        zoom_bg = 1.04 + 0.03 * smooth_ease
+        pan_x = int(24 * (smooth_ease - 0.5))
         pan_y = 0
     else:
-        zoom_bg = 1.06 + 0.04 * smooth_ease
-        pan_x = int(-32 * (smooth_ease - 0.5))
-        pan_y = int(10 * (smooth_ease - 0.5))
+        zoom_bg = 1.05 + 0.03 * smooth_ease
+        pan_x = int(-24 * (smooth_ease - 0.5))
+        pan_y = int(8 * (smooth_ease - 0.5))
 
     bw, bh = int(width * zoom_bg), int(height * zoom_bg)
     bg_moved = bg_img.resize((bw, bh), Image.Resampling.BILINEAR)
@@ -456,57 +495,16 @@ def render_frame_with_store_layout(
     frame = bg_moved.crop((bx, by, bx + width, by + height)).convert("RGBA")
 
     if fg_img.width > 2 and fg_img.height > 2:
-        fg_scale = 0.97 + 0.05 * smooth_ease
+        fg_scale = 0.97 + 0.04 * smooth_ease
         fw = max(10, int(fg_img.width * fg_scale))
         fh = max(10, int(fg_img.height * fg_scale))
         fg_resized = fg_img.resize((fw, fh), Image.Resampling.BILINEAR)
-        fx = max(40, min(width - fw - 40, (width - fw) // 2 + int(pan_x * 0.35)))
-        fy = max(240, min(height - 620 - fh // 2, (height // 2 - 60) - fh // 2 + int(pan_y * 0.35)))
+        fx = max(24, min(width - fw - 24, (width - fw) // 2 + int(pan_x * 0.35)))
+        fy = max(int(height * 0.14), min(int(height * 0.68) - fh, (height // 2 - int(height * 0.03)) - fh // 2 + int(pan_y * 0.35)))
         frame.paste(fg_resized, (fx, fy))
 
-    overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    odraw = ImageDraw.Draw(overlay)
-
-    for y in range(280):
-        alpha = int(145 * (1.0 - y / 280.0))
-        odraw.line([(0, y), (width, y)], fill=(8, 12, 20, alpha))
-
-    for y in range(height - 540, height):
-        ratio = (y - (height - 540)) / 540.0
-        alpha = int(175 * ratio)
-        odraw.line([(0, y), (width, y)], fill=(8, 12, 20, alpha))
-
+    overlay = cached_overlay or _build_static_overlay(width, height, caption, store_name, phone, address)
     frame = Image.alpha_composite(frame, overlay)
-    draw = ImageDraw.Draw(frame)
-
-    f_store = load_font(38)
-    f_caption = load_font(48)
-    f_contact = load_font(32)
-
-    ar_store = fix_arabic(store_name)
-    wrapped_cap = "\n".join(textwrap.wrap(caption, width=26))
-    ar_caption = fix_arabic(wrapped_cap)
-    ar_contact = fix_arabic(f"{phone}  |  {address}")
-
-    draw.text((width // 2, 165), ar_store, font=f_store, fill=(255, 215, 90, 255), anchor="mm")
-
-    draw.multiline_text(
-        (width // 2, height - 415),
-        ar_caption,
-        font=f_caption,
-        fill=(255, 255, 255, 255),
-        anchor="mm",
-        align="center"
-    )
-
-    draw.text(
-        (width // 2, height - 295),
-        ar_contact,
-        font=f_contact,
-        fill=(220, 230, 245, 245),
-        anchor="mm"
-    )
-
     return np.array(frame.convert("RGB"))
 
 
@@ -523,9 +521,10 @@ def mux_audio_with_video(silent_mp4: str, voice_mp3: str, sfx_wav: str, final_mp
         "-map", "[aout]",
         "-c:v", "libx264",
         "-pix_fmt", "yuv420p",
-        "-preset", "fast",
+        "-preset", "veryfast",
+        "-crf", "24",
         "-c:a", "aac",
-        "-b:a", "192k",
+        "-b:a", "128k",
         "-shortest",
         final_mp4
     ]
@@ -535,8 +534,11 @@ def mux_audio_with_video(silent_mp4: str, voice_mp3: str, sfx_wav: str, final_mp
 
 
 async def produce_complete_marketing_video(job_id: str, data: dict, image_paths: list[str], output_dir: str) -> dict:
-    W, H = 1080, 1920
-    FPS = 24
+    W, H = 720, 1280
+    FPS = 20
+    max_ai_budget_sec = 45.0
+    ai_start_ts = time.monotonic()
+    ai_disabled_for_budget = False
 
     visual_context = analyze_product_images_with_ai(
         image_paths=image_paths,
@@ -585,18 +587,34 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
         for s_idx, scene in enumerate(scenes):
             img_path = valid_image_paths[s_idx % len(valid_image_paths)] if valid_image_paths else None
             ai_vid_path = os.path.join(output_dir, f"{job_id}_ai_{s_idx}.mp4")
-            used_ai_clip = try_generate_ai_scene_video(img_path, scene.get("ai_motion_prompt", ""), ai_vid_path)
 
+            remaining_budget = max_ai_budget_sec - (time.monotonic() - ai_start_ts)
+            if not ai_disabled_for_budget and remaining_budget >= 12.0:
+                per_scene_timeout = min(35, max(12, int(remaining_budget)))
+                used_ai_clip = try_generate_ai_scene_video(
+                    img_path,
+                    scene.get("ai_motion_prompt", ""),
+                    ai_vid_path,
+                    timeout_sec=per_scene_timeout,
+                )
+                if not used_ai_clip and (time.monotonic() - ai_start_ts) >= max_ai_budget_sec:
+                    ai_disabled_for_budget = True
+            else:
+                used_ai_clip = False
+
+            ai_frames = None
             if used_ai_clip and os.path.exists(ai_vid_path):
                 reader = imageio.get_reader(ai_vid_path)
-                ai_frames = [Image.fromarray(f).resize((W, H), Image.Resampling.LANCZOS) for f in reader]
+                ai_frames = [Image.fromarray(f).resize((W, H), Image.Resampling.BILINEAR) for f in reader]
                 reader.close()
                 if ai_frames:
                     ai_clips_generated += 1
                 else:
                     ai_frames = None
-            else:
-                ai_frames = None
+                try:
+                    os.remove(ai_vid_path)
+                except Exception:
+                    pass
 
             if not ai_frames and img_path:
                 bg_img, fg_img = prepare_canvas_background(img_path, W, H)
@@ -604,37 +622,50 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
                 bg_img = Image.new("RGB", (W, H), (14, 20, 34))
                 fg_img = Image.new("RGB", (1, 1))
 
+            caption_val = scene.get("caption", data["product_name"])
+            cached_overlay = _build_static_overlay(
+                W, H, caption_val, data["store_name"], data["phone"], data["address"]
+            )
+
             n_frames = max(1, int(round(scene_duration * FPS)))
             for f_i in range(n_frames):
                 t_local = f_i / FPS
                 if ai_frames:
                     base_frame = ai_frames[f_i % len(ai_frames)]
-                    overlay_arr = render_frame_with_store_layout(
+                    frame_arr = render_frame_with_store_layout(
                         base_frame, Image.new("RGB", (1, 1)),
                         W, H, t_local, scene_duration,
-                        caption=scene.get("caption", data["product_name"]),
+                        caption=caption_val,
                         badge_text=scene.get("sub_badge", data["store_name"]),
                         store_name=data["store_name"],
                         phone=data["phone"],
                         address=data["address"],
-                        layout_mode=base_layout + s_idx
+                        layout_mode=base_layout + s_idx,
+                        cached_overlay=cached_overlay,
                     )
-                    writer.append_data(overlay_arr)
                 else:
                     frame_arr = render_frame_with_store_layout(
                         bg_img, fg_img, W, H, t_local, scene_duration,
-                        caption=scene.get("caption", data["product_name"]),
+                        caption=caption_val,
                         badge_text=scene.get("sub_badge", data["store_name"]),
                         store_name=data["store_name"],
                         phone=data["phone"],
                         address=data["address"],
-                        layout_mode=base_layout + s_idx
+                        layout_mode=base_layout + s_idx,
+                        cached_overlay=cached_overlay,
                     )
-                    writer.append_data(frame_arr)
+                writer.append_data(frame_arr)
     finally:
         writer.close()
 
     mux_audio_with_video(silent_mp4, voice_mp3, sfx_wav, final_mp4)
+
+    for temp_f in (silent_mp4, voice_mp3, sfx_wav):
+        try:
+            if os.path.exists(temp_f):
+                os.remove(temp_f)
+        except Exception:
+            pass
 
     return {
         "final_mp4": final_mp4,
