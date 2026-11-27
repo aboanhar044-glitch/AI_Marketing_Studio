@@ -319,13 +319,14 @@ def _download_video_url(video_url: str, out_mp4: str) -> bool:
 
 
 def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: str) -> bool:
-    if not FAL_KEY:
+    clean_fal_key = re.sub(r"\s+", "", FAL_KEY or "")
+    if not clean_fal_key:
         print("Fal AI skipped: FAL_KEY is missing")
         return False
 
     headers = {
-        "Authorization": f"Key {FAL_KEY}",
-        "Content-Type": "application/json"
+        "Authorization": f"Key {clean_fal_key}",
+        "Content-Type": "application/json",
     }
 
     endpoints: list[tuple[str, dict]] = []
@@ -346,8 +347,8 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
                 "prompt": prompt,
                 "image_url": data_uri,
                 "aspect_ratio": "9:16",
-                "duration": "5"
-            }
+                "duration": "5",
+            },
         ))
         endpoints.append((
             "https://fal.run/fal-ai/kling-video/v1.6/pro/image-to-video",
@@ -355,8 +356,8 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
                 "prompt": prompt,
                 "image_url": data_uri,
                 "aspect_ratio": "9:16",
-                "duration": "5"
-            }
+                "duration": "5",
+            },
         ))
 
     endpoints.append((
@@ -364,8 +365,8 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
         {
             "prompt": prompt,
             "aspect_ratio": "9:16",
-            "duration": "5"
-        }
+            "duration": "5",
+        },
     ))
 
     for url_endpoint, payload in endpoints:
@@ -374,7 +375,7 @@ def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: st
                 url_endpoint,
                 json=payload,
                 headers=headers,
-                timeout=240
+                timeout=75,
             )
             if r.status_code == 200:
                 data_json = r.json()
