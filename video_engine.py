@@ -18,8 +18,10 @@ from bidi.algorithm import get_display
 
 try:
     from google import genai as genai_new
+    from google.genai import types as genai_types
 except Exception:
     genai_new = None
+    genai_types = None
 
 try:
     import google.generativeai as genai_legacy
@@ -66,20 +68,27 @@ def load_font(size: int):
     return ImageFont.load_default()
 
 
-def _call_gemini_text(prompt: str) -> str:
+def _call_gemini_multimodal(prompt: str, image_paths: list[str] | None = None) -> str:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not set")
 
     models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+    valid_imgs = [p for p in (image_paths or []) if p and os.path.exists(p)][:3]
 
     if genai_new is not None:
         client = genai_new.Client(api_key=GEMINI_API_KEY)
+        contents: list = [prompt]
+        for img_p in valid_imgs:
+            pil_img = Image.open(img_p).convert("RGB")
+            pil_img.thumbnail((1024, 1024))
+            contents.append(pil_img)
+
         last_err = None
         for model_name in models_to_try:
             try:
                 resp = client.models.generate_content(
                     model=model_name,
-                    contents=prompt,
+                    contents=contents,
                 )
                 if getattr(resp, "text", None):
                     return resp.text.strip()
@@ -93,7 +102,12 @@ def _call_gemini_text(prompt: str) -> str:
         for model_name in models_to_try:
             try:
                 model = genai_legacy.GenerativeModel(model_name)
-                resp = model.generate_content(prompt)
+                parts: list = [prompt]
+                for img_p in valid_imgs:
+                    pil_img = Image.open(img_p).convert("RGB")
+                    pil_img.thumbnail((1024, 1024))
+                    parts.append(pil_img)
+                resp = model.generate_content(parts)
                 if getattr(resp, "text", None):
                     return resp.text.strip()
             except Exception as e:
@@ -104,7 +118,29 @@ def _call_gemini_text(prompt: str) -> str:
     raise RuntimeError("No Gemini SDK available")
 
 
-def generate_script_and_dialogue(data: dict) -> dict:
+def analyze_product_images_with_ai(image_paths: list[str], product_name: str, extra_notes: str) -> str:
+    valid_imgs = [p for p in (image_paths or []) if p and os.path.exists(p)]
+    if not valid_imgs or not GEMINI_API_KEY:
+        return f"Product: {product_name}. Scene idea: {extra_notes}".strip()
+
+    vision_prompt = f"""
+Analyze the uploaded product image(s) carefully for a 9:16 vertical commercial video.
+Product name: {product_name}
+User scene / notes: {extra_notes if extra_notes else "None"}
+
+Describe concisely in English:
+1. Exact visual appearance of the product (type, shape, dominant colors, any visible labels/logos/style).
+2. Best realistic commercial scenes and human actions that fit the product and user notes (for example, taking it from a store, inspecting it, installing or using it in a realistic setting, or a natural promotional presenter/dialogue).
+Keep it factual to the image and suitable for video generation prompts.
+"""
+    try:
+        return _call_gemini_multimodal(vision_prompt, valid_imgs)
+    except Exception as e:
+        print("Gemini vision analysis fallback:", e)
+        return f"Product: {product_name}. Scene idea: {extra_notes}".strip()
+
+
+def generate_script_and_dialogue(data: dict, visual_context: str = "") -> dict:
     store_name = data["store_name"].strip()
     phone = data["phone"].strip()
     address = data["address"].strip()
@@ -118,8 +154,8 @@ def generate_script_and_dialogue(data: dict) -> dict:
     scene_count = max(4, min(8, duration // 5))
 
     prompt = f"""
-أنت مخرج إعلانات ومؤلف حوارات تسويقية احترافية لمنصات TikTok و Reels و Shorts.
-صمم سيناريو إعلانياً قصصياً واقعياً ومشوّقاً باللغة العربية الفصحى البسيطة أو اللهجة القريبة للجمهور بناءً على:
+أنت مخرج إعلانات ومؤلف حوارات تسويقية احترافية لمنصات TikTok و Reels و Shorts بأسلوب إنتاج سينمائي يشبه أدوات توليد الفيديو بالذكاء الاصطناعي.
+صمم سيناريو إعلانياً قصصياً واقعياً ومشوّقاً باللغة العربية بناءً على:
 - اسم المتجر / الشركة: {store_name}
 - أرقام التواصل: {phone}
 - العنوان: {address}
@@ -127,11 +163,12 @@ def generate_script_and_dialogue(data: dict) -> dict:
 - مواصفات وتفاصيل المنتج: {product_details}
 - نوع وأسلوب الفيديو: {video_style}
 - احتياج صاحب المتجر الأساسي: {store_need}
-- ملاحظات إضافية / فكرة المشهد المطلوب: {extra_notes if extra_notes else "لا يوجد"}
+- فكرة المشاهد المطلوبة من المستخدم: {extra_notes if extra_notes else "لا يوجد"}
+- التحليل البصري للمنتج من الصور: {visual_context if visual_context else product_name}
 - المدة المستهدفة: {duration} ثانية (مقسمة إلى {scene_count} مشاهد متسلسلة).
 
-اجعل كل مشهد يطوّر القصة خطوة للأمام (من طرح الفكرة أو المشكلة، إلى استعراض المنتج ومميزاته، إلى موقف عملي واقعي أو حوار تسويقي مقنع، وصولاً إلى دعوة واضحة للتواصل والعنوان).
-اجعل وصف ai_motion_prompt بالإنجليزية دقيقاً وحركياً ومناسباً لإطار عمودي 9:16 مع الحفاظ على مظهر المنتج الأصلي.
+اجعل كل مشهد يطوّر القصة خطوة للأمام (البداية الجذابة، استعراض المنتج ومميزاته، موقف عملي واقعي أو حوار تسويقي مقنع مثل أخذ المنتج أو تركيبه أو استخدامه وفق فكرة المستخدم، ثم دعوة واضحة للتواصل والعنوان).
+اجعل وصف ai_motion_prompt بالإنجليزية غنياً ومحدداً للحركة والكاميرا والإضاءة في إطار عمودي 9:16 مع الحفاظ على شكل المنتج الفعلي كما هو في التحليل البصري.
 
 أعد النتيجة بصيغة JSON فقط بهذا الشكل:
 {{
@@ -148,7 +185,7 @@ def generate_script_and_dialogue(data: dict) -> dict:
 
     if GEMINI_API_KEY:
         try:
-            raw = _call_gemini_text(prompt)
+            raw = _call_gemini_multimodal(prompt, None)
             if "```json" in raw:
                 raw = raw.split("```json")[1].split("```")[0].strip()
             elif "```" in raw:
@@ -157,35 +194,35 @@ def generate_script_and_dialogue(data: dict) -> dict:
             if parsed.get("full_voiceover") and isinstance(parsed.get("scenes"), list) and parsed["scenes"]:
                 return parsed
         except Exception as e:
-            print("Gemini fallback triggered:", e)
+            print("Gemini script fallback triggered:", e)
 
     story_context = extra_notes if extra_notes else f"استخدام {product_name} عملياً وتقديم تجربة موثوقة"
 
     default_scenes = [
         {
             "caption": f"ليش {product_name} خيارك الأذكى؟",
-            "sub_badge": "المشهد 1",
-            "ai_motion_prompt": f"Dynamic commercial vertical 9:16 shot showcasing {product_name} with smooth camera push-in and realistic studio lighting"
+            "sub_badge": "البداية",
+            "ai_motion_prompt": f"Cinematic 9:16 vertical commercial shot of {product_name} ({visual_context[:120]}), smooth dolly-in camera movement, dramatic studio rim lighting, realistic textures"
         },
         {
             "caption": f"تفاصيل تصنع الفرق في {product_name}",
-            "sub_badge": "الجودة",
-            "ai_motion_prompt": f"Close-up cinematic tracking shot highlighting build quality and details of {product_name}, 9:16 vertical"
+            "sub_badge": "المواصفات",
+            "ai_motion_prompt": f"Smooth close-up orbiting camera shot around {product_name} highlighting build quality and fine details, natural commercial lighting, 9:16 vertical"
         },
         {
             "caption": story_context[:42],
-            "sub_badge": "تطبيق عملي",
-            "ai_motion_prompt": f"Realistic real-world scene featuring {product_name} in action ({story_context[:90]}), natural movement, 9:16 vertical"
+            "sub_badge": "مشهد واقعي",
+            "ai_motion_prompt": f"Realistic 9:16 vertical scene showing practical real-world use of {product_name}: {story_context[:120]}, natural human action and smooth handheld cinematic motion"
         },
         {
             "caption": f"اطلب من {store_name}: {phone}",
             "sub_badge": "تواصل معنا",
-            "ai_motion_prompt": f"Confident promotional showcase of {product_name} from {store_name}, clean lighting and smooth pan, 9:16 vertical"
+            "ai_motion_prompt": f"Clean confident commercial showcase of {product_name} representing {store_name}, bright modern lighting, smooth lateral camera glide, 9:16 vertical"
         },
         {
             "caption": f"ننتظركم في {address}",
-            "sub_badge": "الموقع",
-            "ai_motion_prompt": f"Clean energetic closing shot of {product_name} ready for customers, 9:16 vertical"
+            "sub_badge": "العنوان",
+            "ai_motion_prompt": f"Polished brand finale shot of {product_name} ready for delivery and customer trust, warm lighting, 9:16 vertical"
         }
     ]
 
@@ -270,37 +307,89 @@ def generate_sound_effects_wav(duration_sec: float, output_wav: str, sample_rate
         wf.writeframes(pcm.tobytes())
 
 
-def try_generate_ai_scene_video(image_path: str, prompt: str, out_mp4: str) -> bool:
-    if not FAL_KEY:
+def _download_video_url(video_url: str, out_mp4: str) -> bool:
+    if not video_url:
         return False
-    try:
+    vid_resp = requests.get(video_url, timeout=120)
+    if vid_resp.status_code == 200 and len(vid_resp.content) > 1000:
+        with open(out_mp4, "wb") as out:
+            out.write(vid_resp.content)
+        return True
+    return False
+
+
+def try_generate_ai_scene_video(image_path: str | None, prompt: str, out_mp4: str) -> bool:
+    if not FAL_KEY:
+        print("Fal AI skipped: FAL_KEY is missing")
+        return False
+
+    headers = {
+        "Authorization": f"Key {FAL_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    endpoints: list[tuple[str, dict]] = []
+
+    if image_path and os.path.exists(image_path):
         with open(image_path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        headers = {
-            "Authorization": f"Key {FAL_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
+            img_rgb = Image.open(f).convert("RGB")
+            img_rgb.thumbnail((1080, 1920))
+            import io
+            buf = io.BytesIO()
+            img_rgb.save(buf, format="JPEG", quality=88)
+            b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        data_uri = f"data:image/jpeg;base64,{b64}"
+        endpoints.append((
+            "https://fal.run/fal-ai/kling-video/v1.6/standard/image-to-video",
+            {
+                "prompt": prompt,
+                "image_url": data_uri,
+                "aspect_ratio": "9:16",
+                "duration": "5"
+            }
+        ))
+        endpoints.append((
+            "https://fal.run/fal-ai/kling-video/v1.6/pro/image-to-video",
+            {
+                "prompt": prompt,
+                "image_url": data_uri,
+                "aspect_ratio": "9:16",
+                "duration": "5"
+            }
+        ))
+
+    endpoints.append((
+        "https://fal.run/fal-ai/kling-video/v1.6/standard/text-to-video",
+        {
             "prompt": prompt,
-            "image_url": f"data:image/jpeg;base64,{b64}",
             "aspect_ratio": "9:16",
             "duration": "5"
         }
-        r = requests.post(
-            "https://fal.run/fal-ai/kling-video/v1.6/standard/image-to-video",
-            json=payload,
-            headers=headers,
-            timeout=180
-        )
-        if r.status_code == 200:
-            url = r.json().get("video", {}).get("url")
-            if url:
-                vid_bytes = requests.get(url, timeout=120).content
-                with open(out_mp4, "wb") as out:
-                    out.write(vid_bytes)
-                return True
-    except Exception as e:
-        print("Fal AI video error:", e)
+    ))
+
+    for url_endpoint, payload in endpoints:
+        try:
+            r = requests.post(
+                url_endpoint,
+                json=payload,
+                headers=headers,
+                timeout=240
+            )
+            if r.status_code == 200:
+                data_json = r.json()
+                vid_url = (
+                    (data_json.get("video") or {}).get("url")
+                    or data_json.get("video_url")
+                    or ""
+                )
+                if _download_video_url(vid_url, out_mp4):
+                    return True
+            else:
+                print(f"Fal AI endpoint {url_endpoint} returned {r.status_code}: {r.text[:200]}")
+        except Exception as e:
+            print(f"Fal AI error on {url_endpoint}:", e)
+
     return False
 
 
@@ -339,24 +428,25 @@ def render_frame_with_store_layout(
     layout_mode: int
 ) -> np.ndarray:
     progress = min(1.0, max(0.0, t / max(0.1, scene_duration)))
+    smooth_ease = progress * progress * (3.0 - 2.0 * progress)
     motion_type = layout_mode % 4
 
     if motion_type == 0:
-        zoom_bg = 1.05 + 0.08 * progress
-        pan_x = int(35 * math.sin(progress * math.pi))
-        pan_y = int(20 * (progress - 0.5))
+        zoom_bg = 1.04 + 0.06 * smooth_ease
+        pan_x = int(24 * (smooth_ease - 0.5))
+        pan_y = int(14 * (smooth_ease - 0.5))
     elif motion_type == 1:
-        zoom_bg = 1.12 - 0.07 * progress
-        pan_x = int(-35 * math.sin(progress * math.pi))
-        pan_y = int(-20 * (progress - 0.5))
+        zoom_bg = 1.10 - 0.05 * smooth_ease
+        pan_x = int(-24 * (smooth_ease - 0.5))
+        pan_y = int(-14 * (smooth_ease - 0.5))
     elif motion_type == 2:
-        zoom_bg = 1.06 + 0.05 * math.sin(progress * math.pi)
-        pan_x = int(50 * (progress - 0.5))
-        pan_y = int(15 * math.cos(t * 1.5))
+        zoom_bg = 1.05 + 0.04 * smooth_ease
+        pan_x = int(32 * (smooth_ease - 0.5))
+        pan_y = 0
     else:
-        zoom_bg = 1.08 + 0.06 * progress
-        pan_x = int(-45 * (progress - 0.5))
-        pan_y = int(25 * math.sin(t * 1.3))
+        zoom_bg = 1.06 + 0.04 * smooth_ease
+        pan_x = int(-32 * (smooth_ease - 0.5))
+        pan_y = int(10 * (smooth_ease - 0.5))
 
     bw, bh = int(width * zoom_bg), int(height * zoom_bg)
     bg_moved = bg_img.resize((bw, bh), Image.Resampling.BILINEAR)
@@ -365,12 +455,12 @@ def render_frame_with_store_layout(
     frame = bg_moved.crop((bx, by, bx + width, by + height)).convert("RGBA")
 
     if fg_img.width > 2 and fg_img.height > 2:
-        fg_scale = 0.96 + 0.07 * math.sin(progress * math.pi)
+        fg_scale = 0.97 + 0.05 * smooth_ease
         fw = max(10, int(fg_img.width * fg_scale))
         fh = max(10, int(fg_img.height * fg_scale))
         fg_resized = fg_img.resize((fw, fh), Image.Resampling.BILINEAR)
-        fx = max(40, min(width - fw - 40, (width - fw) // 2 + int(pan_x * 0.45)))
-        fy = max(240, min(height - 620 - fh // 2, (height // 2 - 60) - fh // 2 + int(pan_y * 0.4)))
+        fx = max(40, min(width - fw - 40, (width - fw) // 2 + int(pan_x * 0.35)))
+        fy = max(240, min(height - 620 - fh // 2, (height // 2 - 60) - fh // 2 + int(pan_y * 0.35)))
         frame.paste(fg_resized, (fx, fy))
 
     overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -447,7 +537,12 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
     W, H = 1080, 1920
     FPS = 24
 
-    script_obj = generate_script_and_dialogue(data)
+    visual_context = analyze_product_images_with_ai(
+        image_paths=image_paths,
+        product_name=data.get("product_name", ""),
+        extra_notes=data.get("extra_notes", "")
+    )
+    script_obj = generate_script_and_dialogue(data, visual_context=visual_context)
     voice_text = script_obj["full_voiceover"]
     scenes = script_obj.get("scenes", [])
     if not scenes:
@@ -481,11 +576,13 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
         base_layout = random.randint(0, 5)
 
     scene_duration = total_duration / len(scenes)
+    ai_clips_generated = 0
+    valid_image_paths = [p for p in (image_paths or []) if p and os.path.exists(p)]
 
     writer = imageio.get_writer(silent_mp4, fps=FPS, codec="libx264", quality=7, pixelformat="yuv420p")
     try:
         for s_idx, scene in enumerate(scenes):
-            img_path = image_paths[s_idx % len(image_paths)]
+            img_path = valid_image_paths[s_idx % len(valid_image_paths)] if valid_image_paths else None
             ai_vid_path = os.path.join(output_dir, f"{job_id}_ai_{s_idx}.mp4")
             used_ai_clip = try_generate_ai_scene_video(img_path, scene.get("ai_motion_prompt", ""), ai_vid_path)
 
@@ -493,12 +590,18 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
                 reader = imageio.get_reader(ai_vid_path)
                 ai_frames = [Image.fromarray(f).resize((W, H), Image.Resampling.LANCZOS) for f in reader]
                 reader.close()
-                if not ai_frames:
-                    bg_img, fg_img = prepare_canvas_background(img_path, W, H)
+                if ai_frames:
+                    ai_clips_generated += 1
+                else:
                     ai_frames = None
             else:
-                bg_img, fg_img = prepare_canvas_background(img_path, W, H)
                 ai_frames = None
+
+            if not ai_frames and img_path:
+                bg_img, fg_img = prepare_canvas_background(img_path, W, H)
+            elif not ai_frames:
+                bg_img = Image.new("RGB", (W, H), (14, 20, 34))
+                fg_img = Image.new("RGB", (1, 1))
 
             n_frames = max(1, int(round(scene_duration * FPS)))
             for f_i in range(n_frames):
@@ -536,5 +639,7 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
         "final_mp4": final_mp4,
         "voiceover_script": voice_text,
         "layout_mode": base_layout,
-        "duration_seconds": round(total_duration, 1)
+        "duration_seconds": round(total_duration, 1),
+        "ai_clips_generated": ai_clips_generated,
+        "visual_analysis": visual_context
     }
