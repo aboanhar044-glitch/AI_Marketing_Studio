@@ -196,99 +196,101 @@
       });
     });
 
-    let progressTimer = null;
+    let pollTimer = null;
     let elapsedTimer = null;
-    let currentPercent = 0;
     let elapsedSeconds = 0;
 
-    function startProgressUI() {
+    function stopTimers() {
+      clearInterval(pollTimer);
+      clearInterval(elapsedTimer);
+    }
+
+    function updateProgressBox(progress, stage, hintText, isError = false) {
       const loading = document.getElementById("loadingBox");
       const bar = document.getElementById("renderProgressBar");
       const pctText = document.getElementById("renderPercentText");
       const stageText = document.getElementById("renderStageText");
       const elapsedText = document.getElementById("renderElapsedText");
-      const hintText = document.getElementById("renderStatusHint");
-
-      clearInterval(progressTimer);
-      clearInterval(elapsedTimer);
-
-      currentPercent = 5;
-      elapsedSeconds = 0;
+      const hintEl = document.getElementById("renderStatusHint");
 
       loading.classList.remove("hidden");
-      loading.className = "w-full mb-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs leading-relaxed";
-      bar.className = "h-full bg-gradient-to-l from-amber-400 to-rose-500 transition-all duration-300";
-      bar.style.width = currentPercent + "%";
-      pctText.textContent = currentPercent + "%";
-      elapsedText.textContent = "0s";
-      stageText.textContent = "جاري تأليف النص، توليد الصوت البشري، تركيب المؤثرات الصوتية والحركية، وتصميم بطاقات بيانات المتجر...";
-      hintText.textContent = "الحالة: نشط ويعمل";
-
-      elapsedTimer = setInterval(() => {
-        elapsedSeconds += 1;
-        elapsedText.textContent = elapsedSeconds + "s";
-        if (elapsedSeconds > 120) {
-          hintText.textContent = "الحالة: يستغرق وقتاً أطول من المعتاد (تحقق من السجل إذا طال الانتظار)";
-        }
-      }, 1000);
-
-      progressTimer = setInterval(() => {
-        if (currentPercent < 92) {
-          const step = currentPercent < 35 ? 4 : currentPercent < 70 ? 2 : 1;
-          currentPercent = Math.min(92, currentPercent + step);
-          bar.style.width = currentPercent + "%";
-          pctText.textContent = currentPercent + "%";
-
-          if (currentPercent < 30) {
-            stageText.textContent = "تحليل الصور وتأليف السيناريو والصوت البشري...";
-          } else if (currentPercent < 70) {
-            stageText.textContent = "توليد المشاهد المتحركة وتركيب المؤثرات...";
-          } else {
-            stageText.textContent = "تصميم بطاقات المتجر ودمج الفيديو النهائي MP4...";
-          }
-        }
-      }, 1500);
-    }
-
-    function stopProgressUI(success = true, message = "") {
-      clearInterval(progressTimer);
-      clearInterval(elapsedTimer);
-
-      const loading = document.getElementById("loadingBox");
-      const bar = document.getElementById("renderProgressBar");
-      const pctText = document.getElementById("renderPercentText");
-      const stageText = document.getElementById("renderStageText");
-      const hintText = document.getElementById("renderStatusHint");
-
-      if (success) {
-        currentPercent = 100;
-        bar.style.width = "100%";
-        pctText.textContent = "100%";
-        stageText.textContent = message || "اكتمل إنتاج الفيديو بنجاح";
-        hintText.textContent = "الحالة: مكتمل";
-        setTimeout(() => {
-          loading.classList.add("hidden");
-        }, 1200);
-      } else {
+      if (isError) {
         loading.className = "w-full mb-4 p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs leading-relaxed";
         bar.className = "h-full bg-rose-500 transition-all duration-300";
-        stageText.textContent = message || "توقف الإنتاج أو حدث خطأ في الاتصال";
-        hintText.textContent = "الحالة: متوقف / خطأ";
+      } else {
+        loading.className = "w-full mb-4 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs leading-relaxed";
+        bar.className = "h-full bg-gradient-to-l from-amber-400 to-rose-500 transition-all duration-300";
       }
+
+      const safePct = Math.max(0, Math.min(100, Number(progress) || 0));
+      bar.style.width = safePct + "%";
+      pctText.textContent = safePct + "%";
+      stageText.textContent = stage || "جاري المعالجة...";
+      elapsedText.textContent = elapsedSeconds + "s";
+      if (hintText) {
+        hintEl.textContent = hintText;
+      }
+    }
+
+    function waitForJobCompletion(jobId) {
+      return new Promise((resolve, reject) => {
+        pollTimer = setInterval(async () => {
+          try {
+            const res = await fetch(`/api/status/${encodeURIComponent(jobId)}`, { cache: "no-store" });
+            const rawText = await res.text();
+            let data = null;
+            try {
+              data = JSON.parse(rawText);
+            } catch (_) {
+              throw new Error(rawText || "استجابة غير صالحة من الخادم");
+            }
+
+            if (!res.ok) {
+              throw new Error(data.message || data.detail || "تعذر قراءة حالة المهمة");
+            }
+
+            const hint = elapsedSeconds > 120
+              ? "الحالة: ما زال يعمل في الخلفية (مدة أطول من المعتاد)"
+              : "الحالة: نشط ويعمل في الخلفية";
+
+            updateProgressBox(data.progress, data.stage, hint, data.status === "failed");
+
+            if (data.status === "completed") {
+              stopTimers();
+              resolve(data);
+            } else if (data.status === "failed") {
+              stopTimers();
+              reject(new Error(data.error || data.stage || "تعذر إتمام إنتاج الفيديو"));
+            }
+          } catch (err) {
+            stopTimers();
+            reject(err);
+          }
+        }, 2000);
+      });
     }
 
     document.getElementById("studioForm").addEventListener("submit", async (e) => {
       e.preventDefault();
       const btn = document.getElementById("generateBtn");
+      const loading = document.getElementById("loadingBox");
       const player = document.getElementById("videoPlayer");
       const emptyMsg = document.getElementById("emptyMsg");
       const dl = document.getElementById("downloadLink");
       const scriptCard = document.getElementById("scriptCard");
       const scriptText = document.getElementById("scriptText");
 
+      stopTimers();
+      elapsedSeconds = 0;
       btn.disabled = true;
       btn.textContent = "جاري إنتاج الفيديو...";
-      startProgressUI();
+      updateProgressBox(8, "جاري إرسال الطلب وبدء المهمة...", "الحالة: نشط ويعمل");
+
+      elapsedTimer = setInterval(() => {
+        elapsedSeconds += 1;
+        const el = document.getElementById("renderElapsedText");
+        if (el) el.textContent = elapsedSeconds + "s";
+      }, 1000);
 
       try {
         const fd = new FormData(e.target);
@@ -302,26 +304,33 @@
           throw new Error(rawText || "استجابة غير صالحة من الخادم");
         }
 
-        if (res.ok && json.status === "success") {
-          emptyMsg.classList.add("hidden");
-          player.classList.remove("hidden");
-          player.src = json.video_url;
-          player.play();
-
-          dl.href = json.video_url;
-          dl.download = json.filename;
-          dl.classList.remove("hidden");
-
-          scriptCard.classList.remove("hidden");
-          scriptText.textContent = json.voiceover_script;
-
-          stopProgressUI(true, "اكتمل إنتاج الفيديو بنجاح");
-        } else {
-          stopProgressUI(false, json.message || "تعذر إنتاج الفيديو");
-          alert(json.message || "تعذر إنتاج الفيديو");
+        if (!res.ok || !json.job_id) {
+          throw new Error(json.message || json.detail || "تعذر بدء مهمة إنتاج الفيديو");
         }
+
+        const finalData = await waitForJobCompletion(json.job_id);
+
+        emptyMsg.classList.add("hidden");
+        player.classList.remove("hidden");
+        player.src = finalData.video_url;
+        player.play();
+
+        dl.href = finalData.video_url;
+        dl.download = finalData.filename || "marketing_video.mp4";
+        dl.classList.remove("hidden");
+
+        if (finalData.voiceover_script) {
+          scriptCard.classList.remove("hidden");
+          scriptText.textContent = finalData.voiceover_script;
+        }
+
+        updateProgressBox(100, "اكتمل إنتاج الفيديو بنجاح", "الحالة: مكتمل");
+        setTimeout(() => {
+          loading.classList.add("hidden");
+        }, 1200);
       } catch (err) {
-        stopProgressUI(false, "تعذر الإكمال: " + (err.message || "خطأ في الاتصال"));
+        stopTimers();
+        updateProgressBox(0, "تعذّر الإكمال: " + (err.message || "خطأ في الاتصال"), "الحالة: متوقف / خطأ", true);
         alert("خطأ في الاتصال: " + err.message);
       } finally {
         btn.disabled = false;
