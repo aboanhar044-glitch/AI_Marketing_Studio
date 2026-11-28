@@ -71,8 +71,8 @@ def _call_gemini_multimodal(prompt: str, image_paths: list[str] | None = None) -
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not set")
 
-    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
-    valid_imgs = [p for p in (image_paths or []) if p and os.path.exists(p)][:3]
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash"]
+    valid_imgs = [p for p in (image_paths or []) if p and os.path.exists(p)][:2]
 
     if genai_new is not None:
         client = genai_new.Client(api_key=GEMINI_API_KEY)
@@ -80,7 +80,7 @@ def _call_gemini_multimodal(prompt: str, image_paths: list[str] | None = None) -
         for img_p in valid_imgs:
             with Image.open(img_p) as im:
                 pil_img = im.convert("RGB")
-                pil_img.thumbnail((896, 896))
+                pil_img.thumbnail((512, 512))
                 contents.append(pil_img)
 
         last_err = None
@@ -106,7 +106,7 @@ def _call_gemini_multimodal(prompt: str, image_paths: list[str] | None = None) -
                 for img_p in valid_imgs:
                     with Image.open(img_p) as im:
                         pil_img = im.convert("RGB")
-                        pil_img.thumbnail((896, 896))
+                        pil_img.thumbnail((512, 512))
                         parts.append(pil_img)
                 resp = model.generate_content(parts)
                 if getattr(resp, "text", None):
@@ -152,7 +152,7 @@ def generate_script_and_dialogue(data: dict, visual_context: str = "") -> dict:
     extra_notes = data.get("extra_notes", "").strip()
     duration = int(data.get("duration", 30))
 
-    scene_count = max(3, min(6, duration // 6))
+    scene_count = max(3, min(5, duration // 6))
 
     prompt = f"""
 أنت مخرج إعلانات ومؤلف حوارات تسويقية احترافية لمنصات TikTok و Reels و Shorts بأسلوب إنتاج سينمائي.
@@ -200,28 +200,28 @@ def generate_script_and_dialogue(data: dict, visual_context: str = "") -> dict:
         {
             "caption": f"ليش {product_name} خيارك الأذكى؟",
             "sub_badge": "البداية",
-            "ai_motion_prompt": f"Cinematic 9:16 vertical commercial shot of {product_name} ({visual_context[:100]}), smooth dolly-in camera movement, studio lighting"
+            "ai_motion_prompt": f"Cinematic 9:16 vertical commercial shot of {product_name} ({visual_context[:100]}), smooth dolly-in camera movement, studio lighting",
         },
         {
             "caption": f"تفاصيل تصنع الفرق في {product_name}",
             "sub_badge": "المواصفات",
-            "ai_motion_prompt": f"Smooth close-up camera shot around {product_name} highlighting build quality, natural commercial lighting, 9:16 vertical"
+            "ai_motion_prompt": f"Smooth close-up camera shot around {product_name} highlighting build quality, natural commercial lighting, 9:16 vertical",
         },
         {
             "caption": story_context[:42],
             "sub_badge": "مشهد واقعي",
-            "ai_motion_prompt": f"Realistic 9:16 vertical scene showing practical use of {product_name}: {story_context[:100]}, smooth cinematic motion"
+            "ai_motion_prompt": f"Realistic 9:16 vertical scene showing practical use of {product_name}: {story_context[:100]}, smooth cinematic motion",
         },
         {
             "caption": f"اطلب من {store_name}: {phone}",
             "sub_badge": "تواصل معنا",
-            "ai_motion_prompt": f"Clean commercial showcase of {product_name} representing {store_name}, bright modern lighting, 9:16 vertical"
+            "ai_motion_prompt": f"Clean commercial showcase of {product_name} representing {store_name}, bright modern lighting, 9:16 vertical",
         },
         {
             "caption": f"ننتظركم في {address}",
             "sub_badge": "العنوان",
-            "ai_motion_prompt": f"Polished brand finale shot of {product_name} ready for delivery, warm lighting, 9:16 vertical"
-        }
+            "ai_motion_prompt": f"Polished brand finale shot of {product_name} ready for delivery, warm lighting, 9:16 vertical",
+        },
     ]
 
     voiceover = (
@@ -234,7 +234,7 @@ def generate_script_and_dialogue(data: dict, visual_context: str = "") -> dict:
 
     return {
         "full_voiceover": voiceover,
-        "scenes": default_scenes[:scene_count]
+        "scenes": default_scenes[:scene_count],
     }
 
 
@@ -266,7 +266,7 @@ async def generate_voice_mp3(text: str, voice_id: str, output_mp3: str):
     proc = subprocess.run(
         [ffmpeg_exe, "-y", "-i", tmp_wav, "-codec:a", "libmp3lame", "-q:a", "4", output_mp3],
         capture_output=True,
-        text=True
+        text=True,
     )
     if os.path.exists(tmp_wav):
         os.remove(tmp_wav)
@@ -305,7 +305,7 @@ def generate_sound_effects_wav(duration_sec: float, output_wav: str, sample_rate
         wf.writeframes(pcm.tobytes())
 
 
-def _download_video_url(video_url: str, out_mp4: str, timeout_sec: int = 35) -> bool:
+def _download_video_url(video_url: str, out_mp4: str, timeout_sec: int = 25) -> bool:
     if not video_url:
         return False
     vid_resp = requests.get(video_url, timeout=timeout_sec)
@@ -320,7 +320,7 @@ def try_generate_ai_scene_video(
     image_path: str | None,
     prompt: str,
     out_mp4: str,
-    timeout_sec: int = 35,
+    timeout_sec: int = 25,
 ) -> bool:
     clean_fal_key = re.sub(r"\s+", "", FAL_KEY or "")
     if not clean_fal_key:
@@ -336,9 +336,9 @@ def try_generate_ai_scene_video(
     if image_path and os.path.exists(image_path):
         with Image.open(image_path) as im:
             img_rgb = im.convert("RGB")
-            img_rgb.thumbnail((720, 1280))
+            img_rgb.thumbnail((512, 910))
             buf = io.BytesIO()
-            img_rgb.save(buf, format="JPEG", quality=82)
+            img_rgb.save(buf, format="JPEG", quality=75)
             b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
         data_uri = f"data:image/jpeg;base64,{b64}"
@@ -394,7 +394,7 @@ def prepare_canvas_background(img_path: str, width: int, height: int) -> tuple[I
     bg = src.resize((int(src.width * bg_ratio), int(src.height * bg_ratio)), Image.Resampling.BILINEAR)
     left = (bg.width - width) // 2
     top = (bg.height - height) // 2
-    bg = bg.crop((left, top, left + width, top + height)).filter(ImageFilter.GaussianBlur(radius=14))
+    bg = bg.crop((left, top, left + width, top + height)).filter(ImageFilter.GaussianBlur(radius=10))
 
     dark_layer = Image.new("RGBA", (width, height), (10, 14, 24, 95))
     bg_rgba = Image.alpha_composite(bg.convert("RGBA"), dark_layer).convert("RGB")
@@ -440,14 +440,14 @@ def _build_static_overlay(width: int, height: int, caption: str, store_name: str
         font=f_caption,
         fill=(255, 255, 255, 255),
         anchor="mm",
-        align="center"
+        align="center",
     )
     odraw.text(
         (width // 2, int(height * 0.846)),
         ar_contact,
         font=f_contact,
         fill=(220, 230, 245, 245),
-        anchor="mm"
+        anchor="mm",
     )
     return overlay
 
@@ -500,7 +500,10 @@ def render_frame_with_store_layout(
         fh = max(10, int(fg_img.height * fg_scale))
         fg_resized = fg_img.resize((fw, fh), Image.Resampling.BILINEAR)
         fx = max(24, min(width - fw - 24, (width - fw) // 2 + int(pan_x * 0.35)))
-        fy = max(int(height * 0.14), min(int(height * 0.68) - fh, (height // 2 - int(height * 0.03)) - fh // 2 + int(pan_y * 0.35)))
+        fy = max(
+            int(height * 0.14),
+            min(int(height * 0.68) - fh, (height // 2 - int(height * 0.03)) - fh // 2 + int(pan_y * 0.35)),
+        )
         frame.paste(fg_resized, (fx, fy))
 
     overlay = cached_overlay or _build_static_overlay(width, height, caption, store_name, phone, address)
@@ -516,7 +519,8 @@ def mux_audio_with_video(silent_mp4: str, voice_mp3: str, sfx_wav: str, final_mp
         "-i", silent_mp4,
         "-i", voice_mp3,
         "-i", sfx_wav,
-        "-filter_complex", "[1:a]volume=1.2[a1];[2:a]volume=0.55[a2];[a1][a2]amix=inputs=2:duration=first[aout]",
+        "-filter_complex",
+        "[1:a]volume=1.2[a1];[2:a]volume=0.55[a2];[a1][a2]amix=inputs=2:duration=first[aout]",
         "-map", "0:v:0",
         "-map", "[aout]",
         "-c:v", "libx264",
@@ -526,7 +530,7 @@ def mux_audio_with_video(silent_mp4: str, voice_mp3: str, sfx_wav: str, final_mp
         "-c:a", "aac",
         "-b:a", "128k",
         "-shortest",
-        final_mp4
+        final_mp4,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
@@ -536,20 +540,26 @@ def mux_audio_with_video(silent_mp4: str, voice_mp3: str, sfx_wav: str, final_mp
 async def produce_complete_marketing_video(job_id: str, data: dict, image_paths: list[str], output_dir: str) -> dict:
     W, H = 720, 1280
     FPS = 20
-    max_ai_budget_sec = 45.0
+    max_ai_budget_sec = 25.0
     ai_start_ts = time.monotonic()
     ai_disabled_for_budget = False
 
     visual_context = analyze_product_images_with_ai(
         image_paths=image_paths,
         product_name=data.get("product_name", ""),
-        extra_notes=data.get("extra_notes", "")
+        extra_notes=data.get("extra_notes", ""),
     )
     script_obj = generate_script_and_dialogue(data, visual_context=visual_context)
     voice_text = script_obj["full_voiceover"]
     scenes = script_obj.get("scenes", [])
     if not scenes:
-        scenes = [{"caption": data["product_name"], "sub_badge": data["store_name"], "ai_motion_prompt": data["product_name"]}]
+        scenes = [
+            {
+                "caption": data["product_name"],
+                "sub_badge": data["store_name"],
+                "ai_motion_prompt": data["product_name"],
+            }
+        ]
 
     voice_mp3 = os.path.join(output_dir, f"{job_id}_voice.mp3")
     sfx_wav = os.path.join(output_dir, f"{job_id}_sfx.wav")
@@ -568,7 +578,10 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
         voice_duration = float(data.get("duration", 25))
 
     requested_max = float(data.get("duration", 60))
-    total_duration = max(8.0, min(60.0, max(voice_duration + 0.6, min(requested_max, voice_duration + 1.5))))
+    total_duration = max(
+        8.0,
+        min(60.0, max(voice_duration + 0.6, min(requested_max, voice_duration + 1.5))),
+    )
 
     generate_sound_effects_wav(total_duration, sfx_wav)
 
@@ -582,15 +595,21 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
     ai_clips_generated = 0
     valid_image_paths = [p for p in (image_paths or []) if p and os.path.exists(p)]
 
-    writer = imageio.get_writer(silent_mp4, fps=FPS, codec="libx264", quality=7, pixelformat="yuv420p")
+    writer = imageio.get_writer(
+        silent_mp4,
+        fps=FPS,
+        codec="libx264",
+        quality=7,
+        pixelformat="yuv420p",
+    )
     try:
         for s_idx, scene in enumerate(scenes):
             img_path = valid_image_paths[s_idx % len(valid_image_paths)] if valid_image_paths else None
             ai_vid_path = os.path.join(output_dir, f"{job_id}_ai_{s_idx}.mp4")
 
             remaining_budget = max_ai_budget_sec - (time.monotonic() - ai_start_ts)
-            if not ai_disabled_for_budget and remaining_budget >= 12.0:
-                per_scene_timeout = min(35, max(12, int(remaining_budget)))
+            if not ai_disabled_for_budget and remaining_budget >= 10.0:
+                per_scene_timeout = min(20, max(10, int(remaining_budget)))
                 used_ai_clip = try_generate_ai_scene_video(
                     img_path,
                     scene.get("ai_motion_prompt", ""),
@@ -605,7 +624,10 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
             ai_frames = None
             if used_ai_clip and os.path.exists(ai_vid_path):
                 reader = imageio.get_reader(ai_vid_path)
-                ai_frames = [Image.fromarray(f).resize((W, H), Image.Resampling.BILINEAR) for f in reader]
+                ai_frames = [
+                    Image.fromarray(f).resize((W, H), Image.Resampling.BILINEAR)
+                    for f in reader
+                ]
                 reader.close()
                 if ai_frames:
                     ai_clips_generated += 1
@@ -633,8 +655,12 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
                 if ai_frames:
                     base_frame = ai_frames[f_i % len(ai_frames)]
                     frame_arr = render_frame_with_store_layout(
-                        base_frame, Image.new("RGB", (1, 1)),
-                        W, H, t_local, scene_duration,
+                        base_frame,
+                        Image.new("RGB", (1, 1)),
+                        W,
+                        H,
+                        t_local,
+                        scene_duration,
                         caption=caption_val,
                         badge_text=scene.get("sub_badge", data["store_name"]),
                         store_name=data["store_name"],
@@ -645,7 +671,12 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
                     )
                 else:
                     frame_arr = render_frame_with_store_layout(
-                        bg_img, fg_img, W, H, t_local, scene_duration,
+                        bg_img,
+                        fg_img,
+                        W,
+                        H,
+                        t_local,
+                        scene_duration,
                         caption=caption_val,
                         badge_text=scene.get("sub_badge", data["store_name"]),
                         store_name=data["store_name"],
@@ -655,6 +686,8 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
                         cached_overlay=cached_overlay,
                     )
                 writer.append_data(frame_arr)
+
+            del ai_frames, bg_img, fg_img, cached_overlay
     finally:
         writer.close()
 
@@ -673,5 +706,5 @@ async def produce_complete_marketing_video(job_id: str, data: dict, image_paths:
         "layout_mode": base_layout,
         "duration_seconds": round(total_duration, 1),
         "ai_clips_generated": ai_clips_generated,
-        "visual_analysis": visual_context
+        "visual_analysis": visual_context,
     }
